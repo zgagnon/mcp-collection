@@ -55,7 +55,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "read_url",
         description:
-          "Fetches and returns the text content of a specified URL.",
+          "Fetches and returns the text content of a specified URL, with HTML markup removed.",
         inputSchema: zodToJsonSchema(ReadUrlArgsSchema) as ToolInput,
       },
     ],
