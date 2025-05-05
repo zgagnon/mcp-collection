@@ -23,6 +23,8 @@ const SearchDuckDuckGoArgsSchema = z.object({
 
 const ReadUrlArgsSchema = z.object({
   url: z.string(),
+  useReadabilityMode: z.boolean().optional().default(true),
+  maxLength: z.number().optional().default(10000),
 });
 
 const ToolInputSchema = ToolSchema.shape.inputSchema;
@@ -55,7 +57,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "read_url",
         description:
-          "Fetches and returns the text content of a specified URL, with HTML markup removed.",
+          "Fetches and returns the text content of a specified URL, with HTML markup removed. Uses Mozilla's Readability to extract meaningful content and truncates long content to fit within context windows. Parameters: url (required), useReadabilityMode (boolean, default: true), maxLength (number, default: 10000).",
         inputSchema: zodToJsonSchema(ReadUrlArgsSchema) as ToolInput,
       },
     ],
@@ -86,11 +88,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!parsed.success) {
           throw new Error(`Invalid arguments for read_url: ${parsed.error}`);
         }
-        const content = await fetchUrlContent(parsed.data.url);
+        const content = await fetchUrlContent(
+          parsed.data.url,
+          parsed.data.useReadabilityMode,
+          parsed.data.maxLength
+        );
         return {
           content: [{ 
             type: "text", 
-            text: content || "No content found at the specified URL" 
+            text: content || "No content found at the specified URL", 
+            metadata: {
+              readabilityMode: parsed.data.useReadabilityMode,
+              maxLength: parsed.data.maxLength
+            }
           }],
         };
       }
