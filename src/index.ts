@@ -7,54 +7,22 @@ import {
   ListToolsRequestSchema,
   ToolSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import fs from "fs/promises";
-import path from "path";
-import os from 'os';
+// No filesystem imports needed anymore
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { searchDuckDuckGo } from './duckduckgo.js';
+import { fetchUrlContent } from './url-content.js';
 
-// Command line argument parsing
-const args = process.argv.slice(2);
-if (args.length === 0) {
-  console.error("Usage: mcp-server-filesystem <allowed-directory> [additional-directories...]");
-  process.exit(1);
-}
-
-// Normalize all paths consistently
-function normalizePath(p: string): string {
-  return path.normalize(p);
-}
-
-function expandHome(filepath: string): string {
-  if (filepath.startsWith('~/') || filepath === '~') {
-    return path.join(os.homedir(), filepath.slice(1));
-  }
-  return filepath;
-}
-
-// Store allowed directories in normalized form
-const allowedDirectories = args.map(dir =>
-  normalizePath(path.resolve(expandHome(dir)))
-);
-
-// Validate that all directories exist and are accessible
-await Promise.all(args.map(async (dir) => {
-  try {
-    const stats = await fs.stat(expandHome(dir));
-    if (!stats.isDirectory()) {
-      console.error(`Error: ${dir} is not a directory`);
-      process.exit(1);
-    }
-  } catch (error) {
-    console.error(`Error accessing directory ${dir}:`, error);
-    process.exit(1);
-  }
-}));
+// No command line arguments needed anymore
+// The web-mcp service doesn't require access to the file system
 
 const SearchDuckDuckGoArgsSchema = z.object({
   query: z.string(),
   limit: z.number().optional().default(10),
+});
+
+const ReadUrlArgsSchema = z.object({
+  url: z.string(),
 });
 
 const ToolInputSchema = ToolSchema.shape.inputSchema;
@@ -84,6 +52,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "This tool is useful for finding relevant web resources without displaying the full search results content.",
         inputSchema: zodToJsonSchema(SearchDuckDuckGoArgsSchema) as ToolInput,
       },
+      {
+        name: "read_url",
+        description:
+          "Fetches and returns the text content of a specified URL.",
+        inputSchema: zodToJsonSchema(ReadUrlArgsSchema) as ToolInput,
+      },
     ],
   };
 });
@@ -106,6 +80,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }],
         };
       }
+      
+      case "read_url": {
+        const parsed = ReadUrlArgsSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments for read_url: ${parsed.error}`);
+        }
+        const content = await fetchUrlContent(parsed.data.url);
+        return {
+          content: [{ 
+            type: "text", 
+            text: content || "No content found at the specified URL" 
+          }],
+        };
+      }
 
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -124,7 +112,6 @@ async function runServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Web Search Server running on stdio");
-  console.error("Allowed directories:", allowedDirectories);
 }
 
 runServer().catch((error) => {
