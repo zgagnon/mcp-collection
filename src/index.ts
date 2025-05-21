@@ -10,7 +10,7 @@ import {
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { StoryStatus, StoryPriority } from './user-story.js';
-import { addUserStory, readUserStories, setDataDirectory, markStoryPlayed } from './storage.js';
+import { addUserStory, readUserStories, setDataDirectory, markStoryPlayed, reorderStory } from './storage.js';
 
 // Parse command line arguments
 const parseArgs = () => {
@@ -110,6 +110,11 @@ const MarkStoryPlayedArgsSchema = z.object({
   played: z.boolean()
 });
 
+const ReorderStoryArgsSchema = z.object({
+  storyId: z.string(),
+  newPosition: z.number().int().min(0)
+});
+
 const ToolInputSchema = ToolSchema.shape.inputSchema;
 type ToolInput = z.infer<typeof ToolInputSchema>;
 
@@ -151,6 +156,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "Marks a user story as played or unplayed. " +
           "Set played=true to mark as played, played=false to mark as unplayed.",
         inputSchema: zodToJsonSchema(MarkStoryPlayedArgsSchema) as ToolInput,
+      },
+      {
+        name: "reorder_story",
+        description:
+          "Reorders an unplayed user story to a new position. " +
+          "Only unplayed stories can be reordered. " +
+          "Position is zero-based and refers to the position among unplayed stories only.",
+        inputSchema: zodToJsonSchema(ReorderStoryArgsSchema) as ToolInput,
       },
     ],
   };
@@ -232,6 +245,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: `User story '${updatedStory.title}' has been marked as ${played ? 'played' : 'unplayed'}`
           }],
         };
+      }
+
+      case "reorder_story": {
+        const parsed = ReorderStoryArgsSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments for reorder_story: ${parsed.error}`);
+        }
+
+        const { storyId, newPosition } = parsed.data;
+        
+        try {
+          const updatedStory = await reorderStory(storyId, newPosition);
+
+          if (!updatedStory) {
+            throw new Error(`User story with ID ${storyId} not found`);
+          }
+
+          return {
+            content: [{
+              type: "text",
+              text: `User story '${updatedStory.title}' has been moved to position ${newPosition}`
+            }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          throw new Error(`Failed to reorder story: ${errorMessage}`);
+        }
       }
 
       default:

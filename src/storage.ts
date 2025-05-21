@@ -102,3 +102,67 @@ export async function markStoryPlayed(
   await writeUserStories(stories);
   return stories[storyIndex];
 }
+
+// Reorder an unplayed user story
+export async function reorderStory(
+  storyId: string,
+  newPosition: number,
+): Promise<UserStory | null> {
+  const stories = await readUserStories();
+
+  // Find the story by ID
+  const storyIndex = stories.findIndex((story) => story.id === storyId);
+  if (storyIndex === -1) {
+    return null; // Story not found
+  }
+
+  const story = stories[storyIndex];
+  
+  // Verify the story is unplayed
+  if (story.played) {
+    throw new Error("Cannot reorder played user stories");
+  }
+
+  // Get all unplayed stories
+  const unplayedStories = stories.filter((story) => !story.played);
+  
+  // Find the current position of the story in the unplayed array
+  const currentUnplayedIndex = unplayedStories.findIndex((s) => s.id === storyId);
+  
+  // Validate the new position is within bounds
+  if (newPosition < 0 || newPosition >= unplayedStories.length) {
+    throw new Error(`New position must be between 0 and ${unplayedStories.length - 1}`);
+  }
+  
+  // If same position, no change needed
+  if (currentUnplayedIndex === newPosition) {
+    return story;
+  }
+  
+  // Remove story from current position
+  const storyToMove = unplayedStories.splice(currentUnplayedIndex, 1)[0];
+  
+  // Insert at new position
+  unplayedStories.splice(newPosition, 0, storyToMove);
+  
+  // Reconstruct the full story array with played stories in their original positions
+  const playedStories = stories.filter((story) => story.played);
+  const updatedStories = [...playedStories, ...unplayedStories];
+  
+  // Update timestamp
+  const now = new Date();
+  const updatedStory = {
+    ...storyToMove,
+    updatedAt: now,
+  };
+  
+  // Find and update the story in the full array
+  const updatedIndex = updatedStories.findIndex((s) => s.id === storyId);
+  updatedStories[updatedIndex] = updatedStory;
+  
+  // Save updated stories
+  await writeUserStories(updatedStories);
+  
+  // Return the updated story
+  return updatedStory;
+}
