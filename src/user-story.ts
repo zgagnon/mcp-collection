@@ -13,6 +13,12 @@ export enum StoryPriority {
   CRITICAL = "Critical",
 }
 
+export enum StoryProgressState {
+  UNSTARTED = "Unstarted",
+  STARTED = "Started",    // Preparing for future story
+  PLAYED = "Played"
+}
+
 export interface UserStory {
   id: string;
   title: string;
@@ -21,7 +27,8 @@ export interface UserStory {
   priority: StoryPriority;
   assignee?: string;
   points?: number;
-  played?: boolean; // New field to track if a story has been played
+  played?: boolean; // Kept for backward compatibility
+  progressState?: StoryProgressState; // New field to track story progress state
   createdAt: Date;
   updatedAt: Date;
 }

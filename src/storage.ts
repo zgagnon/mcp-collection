@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { UserStory } from "./user-story.js";
+import { UserStory, StoryProgressState } from "./user-story.js";
 import { v4 as uuidv4 } from "uuid";
 
 // Define the data file paths (defaults)
@@ -35,7 +35,24 @@ export async function readUserStories(): Promise<UserStory[]> {
 
   try {
     const data = await fs.readFile(USER_STORIES_FILE, "utf-8");
-    return JSON.parse(data) as UserStory[];
+    const stories = JSON.parse(data) as UserStory[];
+    
+    // Update stories to ensure they have progressState set based on played field
+    return stories.map(story => {
+      // If progressState is already set, use it
+      if (story.progressState) {
+        // Ensure played flag is consistent with progressState
+        story.played = story.progressState === StoryProgressState.PLAYED;
+        return story;
+      }
+      
+      // If progressState is not set, infer it from played field
+      const progressState = story.played 
+        ? StoryProgressState.PLAYED 
+        : StoryProgressState.UNSTARTED;
+      
+      return { ...story, progressState };
+    });
   } catch (error) {
     // If file doesn't exist or has invalid JSON, return empty array
     if (
@@ -60,7 +77,7 @@ export async function writeUserStories(stories: UserStory[]): Promise<void> {
 
 // Add a new user story
 export async function addUserStory(
-  storyData: Omit<UserStory, "id" | "createdAt" | "updatedAt" | "played">,
+  storyData: Omit<UserStory, "id" | "createdAt" | "updatedAt" | "played" | "progressState">,
 ): Promise<UserStory> {
   const stories = await readUserStories();
 
@@ -69,6 +86,7 @@ export async function addUserStory(
     ...storyData,
     id: uuidv4(),
     played: false, // Initialize played status to false
+    progressState: StoryProgressState.UNSTARTED, // Initialize progress state to UNSTARTED
     createdAt: now,
     updatedAt: now,
   };
@@ -96,11 +114,40 @@ export async function markStoryPlayed(
   stories[storyIndex] = {
     ...stories[storyIndex],
     played: played,
+    // Update progressState to be consistent with played status
+    progressState: played ? StoryProgressState.PLAYED : StoryProgressState.UNSTARTED,
     updatedAt: now,
   };
 
   await writeUserStories(stories);
   return stories[storyIndex];
+}
+
+// Update a story's progress state
+export async function updateStoryProgressState(
+  storyId: string,
+  progressState: StoryProgressState,
+): Promise<UserStory | null> {
+  const stories = await readUserStories();
+
+  const storyIndex = stories.findIndex((story) => story.id === storyId);
+  if (storyIndex === -1) {
+    return null; // Story not found
+  }
+
+  // Update the story
+  const now = new Date();
+  const updatedStory = {
+    ...stories[storyIndex],
+    progressState: progressState,
+    // Keep played flag in sync with progressState for backward compatibility
+    played: progressState === StoryProgressState.PLAYED,
+    updatedAt: now,
+  };
+
+  stories[storyIndex] = updatedStory;
+  await writeUserStories(stories);
+  return updatedStory;
 }
 
 // Reorder an unplayed user story
@@ -118,36 +165,42 @@ export async function reorderStory(
 
   const story = stories[storyIndex];
   
-  // Verify the story is unplayed
-  if (story.played) {
-    throw new Error("Cannot reorder played user stories");
+  // Verify the story is unstarted (using progressState if available, falling back to played flag)
+  if (story.progressState ? story.progressState !== StoryProgressState.UNSTARTED : story.played) {
+    throw new Error("Can only reorder stories in Unstarted state");
   }
 
-  // Get all unplayed stories
-  const unplayedStories = stories.filter((story) => !story.played);
+  // Get all unstarted stories
+  const unstartedStories = stories.filter((s) => 
+    s.progressState === StoryProgressState.UNSTARTED || 
+    (s.progressState === undefined && !s.played)
+  );
   
-  // Find the current position of the story in the unplayed array
-  const currentUnplayedIndex = unplayedStories.findIndex((s) => s.id === storyId);
+  // Find the current position of the story in the unstarted array
+  const currentUnstartedIndex = unstartedStories.findIndex((s) => s.id === storyId);
   
   // Validate the new position is within bounds
-  if (newPosition < 0 || newPosition >= unplayedStories.length) {
-    throw new Error(`New position must be between 0 and ${unplayedStories.length - 1}`);
+  if (newPosition < 0 || newPosition >= unstartedStories.length) {
+    throw new Error(`New position must be between 0 and ${unstartedStories.length - 1}`);
   }
   
   // If same position, no change needed
-  if (currentUnplayedIndex === newPosition) {
+  if (currentUnstartedIndex === newPosition) {
     return story;
   }
   
   // Remove story from current position
-  const storyToMove = unplayedStories.splice(currentUnplayedIndex, 1)[0];
+  const storyToMove = unstartedStories.splice(currentUnstartedIndex, 1)[0];
   
   // Insert at new position
-  unplayedStories.splice(newPosition, 0, storyToMove);
+  unstartedStories.splice(newPosition, 0, storyToMove);
   
-  // Reconstruct the full story array with played stories in their original positions
-  const playedStories = stories.filter((story) => story.played);
-  const updatedStories = [...playedStories, ...unplayedStories];
+  // Reconstruct the full story array with started and played stories in their original positions
+  const otherStories = stories.filter((s) => 
+    s.progressState !== StoryProgressState.UNSTARTED || 
+    (s.progressState === undefined && s.played)
+  );
+  const updatedStories = [...otherStories, ...unstartedStories];
   
   // Update timestamp
   const now = new Date();

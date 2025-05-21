@@ -9,8 +9,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { StoryStatus, StoryPriority } from './user-story.js';
-import { addUserStory, readUserStories, setDataDirectory, markStoryPlayed, reorderStory } from './storage.js';
+import { StoryStatus, StoryPriority, StoryProgressState } from './user-story.js';
+import { addUserStory, readUserStories, setDataDirectory, markStoryPlayed, reorderStory, updateStoryProgressState } from './storage.js';
 
 // Parse command line arguments
 const parseArgs = () => {
@@ -102,7 +102,12 @@ const ListUserStoriesArgsSchema = z.object({
     StoryPriority.CRITICAL
   ]).optional(),
   assignee: z.string().optional(),
-  played: z.boolean().optional() // New field to filter by played status
+  played: z.boolean().optional(), // Kept for backward compatibility
+  progressState: z.enum([
+    StoryProgressState.UNSTARTED,
+    StoryProgressState.STARTED,
+    StoryProgressState.PLAYED
+  ]).optional() // New field to filter by progress state
 });
 
 const MarkStoryPlayedArgsSchema = z.object({
@@ -113,6 +118,15 @@ const MarkStoryPlayedArgsSchema = z.object({
 const ReorderStoryArgsSchema = z.object({
   storyId: z.string(),
   newPosition: z.number().int().min(0)
+});
+
+const UpdateStoryProgressStateArgsSchema = z.object({
+  storyId: z.string(),
+  progressState: z.enum([
+    StoryProgressState.UNSTARTED,
+    StoryProgressState.STARTED,
+    StoryProgressState.PLAYED
+  ])
 });
 
 const ToolInputSchema = ToolSchema.shape.inputSchema;
@@ -147,7 +161,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description:
           "Lists user stories from the project management system with optional filtering. " +
           "Returns all user stories if no filters are provided. " +
-          "Use played=true to show only played stories, played=false for unplayed stories, or omit to show all.",
+          "Use progressState to filter by Unstarted, Started, or Played states, or use played=true/false for backward compatibility.",
         inputSchema: zodToJsonSchema(ListUserStoriesArgsSchema) as ToolInput,
       },
       {
@@ -158,11 +172,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: zodToJsonSchema(MarkStoryPlayedArgsSchema) as ToolInput,
       },
       {
+        name: "update_story_progress_state",
+        description:
+          "Updates a user story's progress state to Unstarted, Started, or Played. " +
+          "This provides more fine-grained control over a story's lifecycle than the played flag.",
+        inputSchema: zodToJsonSchema(UpdateStoryProgressStateArgsSchema) as ToolInput,
+      },
+      {
         name: "reorder_story",
         description:
-          "Reorders an unplayed user story to a new position. " +
-          "Only unplayed stories can be reordered. " +
-          "Position is zero-based and refers to the position among unplayed stories only.",
+          "Reorders an unstarted user story to a new position. " +
+          "Only stories in the Unstarted state can be reordered. " +
+          "Position is zero-based and refers to the position among unstarted stories only.",
         inputSchema: zodToJsonSchema(ReorderStoryArgsSchema) as ToolInput,
       },
     ],
@@ -206,8 +227,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (parsed.data.assignee) {
           filteredStories = filteredStories.filter(story => story.assignee === parsed.data.assignee);
         }
-        // Filter by played status if provided
-        if (parsed.data.played !== undefined) {
+        // Filter by progressState if provided (takes precedence over played)
+        if (parsed.data.progressState !== undefined) {
+          filteredStories = filteredStories.filter(story =>
+            story.progressState === parsed.data.progressState
+          );
+        }
+        // Filter by played status if provided and progressState not provided
+        else if (parsed.data.played !== undefined) {
           filteredStories = filteredStories.filter(story =>
             story.played === parsed.data.played
           );
@@ -215,7 +242,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Format the output
         const formattedStories = filteredStories.map(story => {
-          return `ID: ${story.id}\nTitle: ${story.title}\nStatus: ${story.status}\nPriority: ${story.priority}\nAssignee: ${story.assignee || 'Unassigned'}\nPoints: ${story.points || 'Not estimated'}\nPlayed: ${story.played ? 'Yes' : 'No'}\n${story.description}\n---`;
+          return `ID: ${story.id}\nTitle: ${story.title}\nStatus: ${story.status}\nPriority: ${story.priority}\nAssignee: ${story.assignee || 'Unassigned'}\nPoints: ${story.points || 'Not estimated'}\nProgress State: ${story.progressState || (story.played ? StoryProgressState.PLAYED : StoryProgressState.UNSTARTED)}\nPlayed: ${story.played ? 'Yes' : 'No'}\n${story.description}\n---`;
         }).join('\n');
 
         return {
@@ -243,6 +270,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [{
             type: "text",
             text: `User story '${updatedStory.title}' has been marked as ${played ? 'played' : 'unplayed'}`
+          }],
+        };
+      }
+
+      case "update_story_progress_state": {
+        const parsed = UpdateStoryProgressStateArgsSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments for update_story_progress_state: ${parsed.error}`);
+        }
+
+        const { storyId, progressState } = parsed.data;
+        const updatedStory = await updateStoryProgressState(storyId, progressState);
+
+        if (!updatedStory) {
+          throw new Error(`User story with ID ${storyId} not found`);
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: `User story '${updatedStory.title}' progress state has been updated to ${progressState}`
           }],
         };
       }
