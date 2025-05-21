@@ -10,7 +10,7 @@ import {
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { StoryStatus, StoryPriority } from './user-story.js';
-import { addUserStory, readUserStories, setDataDirectory } from './storage.js';
+import { addUserStory, readUserStories, setDataDirectory, markStoryPlayed } from './storage.js';
 
 // Parse command line arguments
 const parseArgs = () => {
@@ -27,7 +27,7 @@ const parseArgs = () => {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    
+
     if (arg === '--help' || arg === '-h') {
       options.help = true;
     } else if (arg === '--transport' || arg === '-t') {
@@ -101,7 +101,13 @@ const ListUserStoriesArgsSchema = z.object({
     StoryPriority.HIGH,
     StoryPriority.CRITICAL
   ]).optional(),
-  assignee: z.string().optional()
+  assignee: z.string().optional(),
+  played: z.boolean().optional() // New field to filter by played status
+});
+
+const MarkStoryPlayedArgsSchema = z.object({
+  storyId: z.string(),
+  played: z.boolean()
 });
 
 const ToolInputSchema = ToolSchema.shape.inputSchema;
@@ -135,8 +141,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: "list_user_stories",
         description:
           "Lists user stories from the project management system with optional filtering. " +
-          "Returns all user stories if no filters are provided.",
+          "Returns all user stories if no filters are provided. " +
+          "Use played=true to show only played stories, played=false for unplayed stories, or omit to show all.",
         inputSchema: zodToJsonSchema(ListUserStoriesArgsSchema) as ToolInput,
+      },
+      {
+        name: "mark_story_played",
+        description:
+          "Marks a user story as played or unplayed. " +
+          "Set played=true to mark as played, played=false to mark as unplayed.",
+        inputSchema: zodToJsonSchema(MarkStoryPlayedArgsSchema) as ToolInput,
       },
     ],
   };
@@ -154,20 +168,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const newStory = await addUserStory(parsed.data);
         return {
-          content: [{ 
-            type: "text", 
-            text: `User story created successfully with ID: ${newStory.id}` 
+          content: [{
+            type: "text",
+            text: `User story created successfully with ID: ${newStory.id}`
           }],
         };
       }
-      
+
       case "list_user_stories": {
         const parsed = ListUserStoriesArgsSchema.safeParse(args);
         if (!parsed.success) {
           throw new Error(`Invalid arguments for list_user_stories: ${parsed.error}`);
         }
         const stories = await readUserStories();
-        
+
         // Apply filters if provided
         let filteredStories = stories;
         if (parsed.data.status) {
@@ -179,16 +193,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (parsed.data.assignee) {
           filteredStories = filteredStories.filter(story => story.assignee === parsed.data.assignee);
         }
-        
+        // Filter by played status if provided
+        if (parsed.data.played !== undefined) {
+          filteredStories = filteredStories.filter(story =>
+            story.played === parsed.data.played
+          );
+        }
+
         // Format the output
         const formattedStories = filteredStories.map(story => {
-          return `ID: ${story.id}\nTitle: ${story.title}\nStatus: ${story.status}\nPriority: ${story.priority}\nAssignee: ${story.assignee || 'Unassigned'}\nPoints: ${story.points || 'Not estimated'}\n${story.description}\n---`;
+          return `ID: ${story.id}\nTitle: ${story.title}\nStatus: ${story.status}\nPriority: ${story.priority}\nAssignee: ${story.assignee || 'Unassigned'}\nPoints: ${story.points || 'Not estimated'}\nPlayed: ${story.played ? 'Yes' : 'No'}\n${story.description}\n---`;
         }).join('\n');
-        
+
         return {
-          content: [{ 
-            type: "text", 
-            text: filteredStories.length > 0 ? formattedStories : "No user stories found matching the criteria" 
+          content: [{
+            type: "text",
+            text: filteredStories.length > 0 ? formattedStories : "No user stories found matching the criteria"
+          }],
+        };
+      }
+
+      case "mark_story_played": {
+        const parsed = MarkStoryPlayedArgsSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments for mark_story_played: ${parsed.error}`);
+        }
+
+        const { storyId, played } = parsed.data;
+        const updatedStory = await markStoryPlayed(storyId, played);
+
+        if (!updatedStory) {
+          throw new Error(`User story with ID ${storyId} not found`);
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: `User story '${updatedStory.title}' has been marked as ${played ? 'played' : 'unplayed'}`
           }],
         };
       }
@@ -209,7 +250,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function runServer() {
   const transportType = options.transport;
   let transport;
-  
+
   switch (transportType) {
     case 'stdio':
       transport = new StdioServerTransport();
@@ -228,7 +269,7 @@ async function runServer() {
       console.error(`Unknown transport: ${transportType}`);
       process.exit(1);
   }
-  
+
   await server.connect(transport);
   console.error(`Project Management Server running with ${transportType} transport`);
 }
