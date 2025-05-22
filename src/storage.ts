@@ -197,7 +197,7 @@ export async function reorderStory(
   
   // Reconstruct the full story array with started and played stories in their original positions
   const otherStories = stories.filter((s) => 
-    s.progressState !== StoryProgressState.UNSTARTED || 
+    (s.progressState && s.progressState !== StoryProgressState.UNSTARTED) || 
     (s.progressState === undefined && s.played)
   );
   const updatedStories = [...otherStories, ...unstartedStories];
