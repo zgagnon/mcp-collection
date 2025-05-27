@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { UserStory, StoryProgressState } from "./user-story.js";
+import { UserStory, StoryProgressState, StoryStatus, StoryPriority } from "./user-story.js";
 import { v4 as uuidv4 } from "uuid";
 
 // Define the data file paths (defaults)
@@ -142,6 +142,31 @@ export async function updateStoryProgressState(
     progressState: progressState,
     // Keep played flag in sync with progressState for backward compatibility
     played: progressState === StoryProgressState.PLAYED,
+    updatedAt: now,
+  };
+
+  stories[storyIndex] = updatedStory;
+  await writeUserStories(stories);
+  return updatedStory;
+}
+
+// Edit an existing user story
+export async function editUserStory(
+  storyId: string,
+  updates: Partial<Pick<UserStory, "title" | "description" | "status" | "priority" | "assignee" | "points">>
+): Promise<UserStory | null> {
+  const stories = await readUserStories();
+
+  const storyIndex = stories.findIndex((story) => story.id === storyId);
+  if (storyIndex === -1) {
+    return null; // Story not found
+  }
+
+  // Update the story with provided fields
+  const now = new Date();
+  const updatedStory = {
+    ...stories[storyIndex],
+    ...updates,
     updatedAt: now,
   };
 

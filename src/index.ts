@@ -10,7 +10,7 @@ import {
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { StoryStatus, StoryPriority, StoryProgressState } from './user-story.js';
-import { addUserStory, readUserStories, setDataDirectory, markStoryPlayed, reorderStory, updateStoryProgressState } from './storage.js';
+import { addUserStory, readUserStories, setDataDirectory, markStoryPlayed, reorderStory, updateStoryProgressState, editUserStory } from './storage.js';
 
 // Parse command line arguments
 const parseArgs = () => {
@@ -129,6 +129,27 @@ const UpdateStoryProgressStateArgsSchema = z.object({
   ])
 });
 
+const EditUserStoryArgsSchema = z.object({
+  storyId: z.string(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  status: z.enum([
+    StoryStatus.NEW,
+    StoryStatus.IN_PROGRESS,
+    StoryStatus.REVIEW,
+    StoryStatus.DONE,
+    StoryStatus.BLOCKED
+  ]).optional(),
+  priority: z.enum([
+    StoryPriority.LOW,
+    StoryPriority.MEDIUM,
+    StoryPriority.HIGH,
+    StoryPriority.CRITICAL
+  ]).optional(),
+  assignee: z.string().optional(),
+  points: z.number().optional()
+});
+
 const ToolInputSchema = ToolSchema.shape.inputSchema;
 type ToolInput = z.infer<typeof ToolInputSchema>;
 
@@ -185,6 +206,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "Only stories in the Unstarted state can be reordered. " +
           "Position is zero-based and refers to the position among unstarted stories only.",
         inputSchema: zodToJsonSchema(ReorderStoryArgsSchema) as ToolInput,
+      },
+      {
+        name: "edit_user_story",
+        description:
+          "Edits an existing user story in the project management system. " +
+          "Provide the storyId and any fields you want to update. " +
+          "Only the provided fields will be updated.",
+        inputSchema: zodToJsonSchema(EditUserStoryArgsSchema) as ToolInput,
       },
     ],
   };
@@ -320,6 +349,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const errorMessage = error instanceof Error ? error.message : String(error);
           throw new Error(`Failed to reorder story: ${errorMessage}`);
         }
+      }
+
+      case "edit_user_story": {
+        const parsed = EditUserStoryArgsSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments for edit_user_story: ${parsed.error}`);
+        }
+
+        const { storyId, ...updates } = parsed.data;
+        const updatedStory = await editUserStory(storyId, updates);
+
+        if (!updatedStory) {
+          throw new Error(`User story with ID ${storyId} not found`);
+        }
+
+        // Construct a message about what was updated
+        const updatedFields = Object.keys(updates).length > 0 
+          ? `Updated fields: ${Object.keys(updates).join(', ')}`
+          : "No fields were changed";
+
+        return {
+          content: [{
+            type: "text",
+            text: `User story '${updatedStory.title}' has been updated. ${updatedFields}`
+          }],
+        };
       }
 
       default:
