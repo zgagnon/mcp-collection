@@ -6,7 +6,6 @@ result-*
 .direnv
 # Dependencies
 node_modules/
-.direnv
 
 # Build output
 dist/
