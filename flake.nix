@@ -4,6 +4,9 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    crane = {
+      url = "github:ipetkov/crane";
+    };
   };
 
   outputs =
@@ -11,16 +14,20 @@
       self,
       nixpkgs,
       flake-utils,
+      crane,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs { inherit system; };
+        craneLib = crane.mkLib pkgs;
+        filesystemPkg = import ./filesystem { inherit pkgs craneLib; };
       in
       {
         packages = {
-          # We could define a build package here if needed
-          # For now, this would typically be handled by npm/yarn scripts
+          # Add the filesystem package as an output
+          filesystem = filesystemPkg;
+          default = filesystemPkg;
         };
 
         devShells.default = pkgs.mkShell {
@@ -35,6 +42,12 @@
             nodePackages.eslint # Linting
             git
             jq # Useful for JSON manipulation
+            # Add Rust development tools
+            rustc
+            cargo
+            rustfmt
+            clippy
+            rust-analyzer
           ];
 
           shellHook = ''
