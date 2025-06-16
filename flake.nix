@@ -22,11 +22,13 @@
         pkgs = import nixpkgs { inherit system; };
         craneLib = crane.mkLib pkgs;
         filesystemPkg = import ./filesystem { inherit pkgs craneLib; };
+        webMcpPkg = pkgs.callPackage ./web-mcp {};
       in
       {
         packages = {
           # Add the filesystem package as an output
           filesystem = filesystemPkg;
+          web-mcp = webMcpPkg;
           default = filesystemPkg;
         };
 
