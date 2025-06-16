@@ -18,7 +18,7 @@ let
   # Build the filesystem package
   filesystem = craneLib.buildPackage {
     inherit cargoArtifacts src;
-    pname = "filesystem";
+    pname = "rust-mcp-filesystem";
     version = "0.1.0";
   };
 in
