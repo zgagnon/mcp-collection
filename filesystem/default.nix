@@ -1,11 +1,12 @@
 { pkgs, craneLib }:
 
 let
-  src = pkgs.lib.cleanSourceWith {
-    src = ./.;
-    filter = path: type: 
-      builtins.elem (baseNameOf path) [ "Cargo.lock" "Cargo.toml" ]
-      || (pkgs.lib.hasPrefix "${toString ./.}/src" path);
+  src = pkgs.fetchFromGitHub {
+    owner = "rust-mcp-stack";
+    repo = "rust-mcp-filesystem";
+    rev = "main"; # You can specify a specific commit or tag here if needed
+    # sha256 = pkgs.lib.fakeSha256; # Replace with actual hash after first attempt
+    sha256 = "sha256-tbCSL/bOVDFGsvIGPNDETq3WJNk2eoIhsJz6w5T20bY=";
   };
 
   # Build dependencies separately to improve caching
@@ -20,4 +21,5 @@ let
     pname = "filesystem";
     version = "0.1.0";
   };
-in filesystem
+in
+filesystem
