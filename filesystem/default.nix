@@ -4,9 +4,9 @@ let
   src = pkgs.fetchFromGitHub {
     owner = "rust-mcp-stack";
     repo = "rust-mcp-filesystem";
-    rev = "main"; # You can specify a specific commit or tag here if needed
+    rev = "v0.2.2"; # You can specify a specific commit or tag here if needed
     # sha256 = pkgs.lib.fakeSha256; # Replace with actual hash after first attempt
-    sha256 = "sha256-tbCSL/bOVDFGsvIGPNDETq3WJNk2eoIhsJz6w5T20bY=";
+    sha256 = "sha256-5RxjMhnG6l2b1xIbiK/UxP8T/JoQ0aFKn78Sy/aegt0=";
   };
 
   # Build dependencies separately to improve caching
@@ -19,7 +19,7 @@ let
   filesystem = craneLib.buildPackage {
     inherit cargoArtifacts src;
     pname = "rust-mcp-filesystem";
-    version = "0.1.0";
+    version = "0.2.2";
   };
 in
 filesystem
